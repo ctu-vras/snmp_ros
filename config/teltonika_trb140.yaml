@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-FileCopyrightText: Czech Technical University in Prague
+
+# Configuration of snmp_reader node for reading stats of LTE modem Teltonika TRB-140
+
+agent_address: 192.168.1.140
+topics:
+  signal:
+    oid: "iso.3.6.1.4.1.48690.2.2.1.12.1"
+    type: Int32
+    topic: lte_modem/signal
+  state:
+    oid: "iso.3.6.1.4.1.48690.2.2.1.15.1"
+    type: String
+    topic: lte_modem/connection_state
+  type:
+    oid: "iso.3.6.1.4.1.48690.2.2.1.16.1"
+    type: String
+    topic: lte_modem/connection_type
+  cell_id:
+    oid: "iso.3.6.1.4.1.48690.2.2.1.18.1"
+    type: String
+    topic: lte_modem/cell_id
+  sinr:
+    oid: "iso.3.6.1.4.1.48690.2.2.1.19.1"
+    type: Float64
+    topic: lte_modem/sinr
+  rsrp:
+    oid: "iso.3.6.1.4.1.48690.2.2.1.20.1"
+    type: Float64
+    topic: lte_modem/rsrp
+  rsrq:
+    oid: "iso.3.6.1.4.1.48690.2.2.1.21.1"
+    type: Float64
+    topic: lte_modem/rsrq
+params:
+  device_name:
+    oid: "iso.3.6.1.4.1.48690.1.2.0"
+    type: str
+    parameter: lte_modem/device_name
+  serial:
+    oid: "iso.3.6.1.4.1.48690.1.1.0"
+    type: str
+    parameter: lte_modem/serial
+  fw_version:
+    oid: "iso.3.6.1.4.1.48690.1.6.0"
+    type: str
+    parameter: lte_modem/fw_version

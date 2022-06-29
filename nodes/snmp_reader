@@ -1,0 +1,200 @@
+#!/usr/bin/env python
+
+# SPDX-License-Identifier: BSD-3-Clause
+# SPDX-FileCopyrightText: Czech Technical University in Prague
+
+"""
+ROS node that allows reading OID values via SNMP into ROS topics or parameters.
+
+Parameters:
+- `~agent_address` (type `string`, default "127.0.0.1"): IP address of the SNMP agent.
+- `~agent_port` (type `int`, default 161): Port to connect to.
+- `~community` (type `string`, default "public"): The community to connect to.
+- `~snmp_v2` (type `bool`, default `True`): If True, v2 is used, otherwise SNMP v1 is used.
+- `~topics` (type `dict`, default `{}`): List of OIDs that should be periodically read and published as topics.
+  - Each item in `topics` is a dict with the following items:
+  - `oid` (type `string`): The OID to read.
+  - `type` (type `string`, default `String`): Type of the ROS message to parse the value as. Use ROS message type names
+                                              like `Int32`.
+  - `topic` (type `string`, defaults to the key of this dictionary entry): The topic to publish the value to.
+                                                                           Prepend `~` to publish it as a private topic.
+  - `rate` (type `float`, default `1.0`): Publishing rate. If set to 0, the value is only read once and published
+                                          latched.
+- `~params` (type `dict`, default `{}`): List of OIDs that should be read once and set as ROS parameters.
+  - Each item in `params` is a dict with the following items:
+  - `oid` (type `string`): The OID to read.
+  - `type` (type `string`, default `str`): Type Python type to parse the value as. Use Python type names like `int`.
+  - `parameter` (type `string`, defaults to the key of this dictionary entry): The parameter to set the value to.
+                                                                               Prepend `~` to set a private parameter.
+
+Published topics:
+- configured by the `~topics` parameter.
+
+"""
+
+from functools import partial
+
+from pysnmp.hlapi import *
+
+import rospy
+
+from std_msgs.msg import Float64
+from std_msgs.msg import Int32
+from std_msgs.msg import String
+
+rospy.init_node("snmp_reader")
+
+agent_address = rospy.get_param("~agent_address", "127.0.0.1")
+agent_port = rospy.get_param("~agent_port", 161)
+community = rospy.get_param("~community", "public")
+snmp_v2 = rospy.get_param("~snmp_v2", True)
+topics = rospy.get_param("~topics", dict())
+params = rospy.get_param("~params", dict())
+
+community_data = CommunityData(community, mpModel=int(snmp_v2))
+agent = (agent_address, agent_port)
+transport_target = UdpTransportTarget(agent) if "." in agent_address else Udp6TransportTarget(agent)
+context_data = ContextData()
+
+rospy.loginfo("Reading SNMP data from agent %s:%i." % (agent_address, agent_port))
+
+
+ros_types = {
+    "Int32": Int32,
+    "Float64": Float64,
+    "String": String,
+}
+
+
+python_types = {
+    "int": int,
+    "float": float,
+    "str": str,
+}
+
+
+def convert_to_ros_msg(snmp_value, ros_type):
+    """
+    Convert the given SNMP (ASN.1) value to a ROS message.
+    :param ASN.1 snmp_value: The SNMP value.
+    :param genpy.Message ros_type: Type of the ROS message to convert to.
+    :return: The ROS message.
+    """
+    if ros_type == Int32:
+        msg = Int32()
+        msg.data = int(snmp_value)
+    elif ros_type == Float64:
+        msg = Float64()
+        msg.data = float(snmp_value)
+    else:
+        msg = String()
+        msg.data = str(snmp_value)
+    return msg
+
+
+def read_raw_value(oid, engine):
+    """
+    Read the given OID from the agent.
+    :param str oid: The OID to read.
+    :param SnmpEngine engine: The engine to use.
+    :return: iterator of SNMP values
+    """
+    cmd = getCmd(engine, community_data, transport_target, context_data, ObjectType(ObjectIdentity(oid)),
+        lookupMib=False, lookupNames=False, lookupValues=False)
+    error_indication, error_status, error_index, var_binds = next(cmd)
+
+    if error_indication:
+        rospy.logerr(error_indication)
+    elif error_status:
+        rospy.logerr('%s at %s' % (
+            error_status.prettyPrint(), error_index and var_binds[int(error_index) - 1][0] or '?'))
+    else:
+        for var_bind in var_binds:
+            try:
+                yield var_bind[1]
+            except Exception as e:
+                rospy.logerr("Error reading OID " + oid + ": " + str(e))
+
+
+def read_topic(oid, engine, ros_type, publisher, _):
+    """
+    Read the given OID and publish it to a topic.
+    :param str oid: The OID to read.
+    :param SnmpEngine engine: The engine to use.
+    :param genpy.Message ros_type: The ROS message type to convert to.
+    :param rospy.Publisher publisher: The publisher to use for publishing the message.
+    """
+    try:
+        for value in read_raw_value(oid, engine):
+            msg = convert_to_ros_msg(value, ros_type)
+            publisher.publish(msg)
+    except Exception as e:
+        rospy.logerr("Error reading OID " + oid + ": " + str(e))
+
+
+def read_param(oid, engine, python_type, param, _):
+    """
+    Read the given OID and set it to a ROS parameter.
+    :param str oid: The OID to read.
+    :param SnmpEngine engine: The engine to use.
+    :param type python_type: The Python type to convert to.
+    :param str param: The parameter to set.
+    """
+    try:
+        for value in read_raw_value(oid, engine):
+            rospy.set_param(param, python_type(value))
+    except Exception as e:
+        rospy.logerr("Error reading OID " + oid + ": " + str(e))
+
+
+# Parse the topic and parameter configurations
+
+
+for topic in topics:
+    topic_config = topics[topic]
+    if "oid" not in topic_config:
+        rospy.logerr("Missing key 'oid' in configuration for topic " + topic)
+        continue
+    oid = topic_config["oid"]
+    if "type" not in topic_config:
+        rospy.logerr("Missing key 'type' in configuration for topic " + topic)
+        continue
+    topic = topic_config.get("topic", topic)
+    ros_type = ros_types.get(topic_config["type"], String)
+
+    rate = topic_config.get("rate", 1.0)
+    oneshot = rate == 0
+    period = rospy.Rate(rate).sleep_dur if not oneshot else rospy.Duration(0)
+
+    publisher = rospy.Publisher(topic, ros_type, queue_size=1, latch=oneshot)
+
+    engine = SnmpEngine()
+    rospy.Timer(period, partial(read_topic, oid, engine, ros_type, publisher), oneshot=oneshot)
+
+    rospy.loginfo("Publishing OID %s of type %s on topic %s %s" % (
+        oid, ros_type, topic, "every %.2f s" % (period.to_sec(),) if not oneshot else "once"))
+
+
+for param in params:
+    param_config = params[param]
+    if "oid" not in param_config:
+        rospy.logerr("Missing key 'oid' in configuration for parameter " + param)
+        continue
+    oid = param_config["oid"]
+    if "type" not in param_config:
+        rospy.logerr("Missing key 'type' in configuration for parameter " + param)
+        continue
+    param = param_config.get("parameter", param)
+    python_type = python_types.get(param_config["type"], str)
+
+    engine = SnmpEngine()
+    rospy.Timer(rospy.Duration(0.001), partial(read_param, oid, engine, python_type, param), oneshot=True)
+
+    rospy.loginfo("Reading OID %s of type %s into parameter %s" % (oid, python_type, param))
+
+# Run forever
+
+try:
+    rospy.spin()
+except rospy.ROSInterruptException:
+    pass
