@@ -2,8 +2,8 @@
 Changelog for package snmp_ros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.0.2 (2022-06-29)
+------------------
 * Fix dependencies.
 * Contributors: Martin Pecka
 
