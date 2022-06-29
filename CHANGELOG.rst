@@ -2,8 +2,8 @@
 Changelog for package snmp_ros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+1.0.3 (2022-06-29)
+------------------
 * Added URLs to package.xml
 * Contributors: Martin Pecka
 
