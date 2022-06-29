@@ -6,6 +6,10 @@
 
   <author email="peckama2@fel.cvut.cz">Martin Pecka</author>
   <maintainer email="peckama2@fel.cvut.cz">Martin Pecka</maintainer>
+  
+  <url type="website">https://github.com/ctu-vras/snmp_ros</url>
+  <url type="repository">https://github.com/ctu-vras/snmp_ros</url>
+  <url type="bugtracker">https://github.com/ctu-vras/snmp_ros/issues</url>
 
   <license>BSD</license>
 
